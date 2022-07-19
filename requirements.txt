@@ -1,0 +1,6 @@
+flask
+flask-openvidu
+pyopenvidu
+flask-redis
+bleach
+gunicorn
