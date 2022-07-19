@@ -1,0 +1,21 @@
+# just upload to docker hub
+language: python
+dist: bionic
+python:
+  - "3.8"
+
+services:
+  - docker
+
+script:
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  - docker build -t $DOCKER_USERNAME/krimo-backend:$TRAVIS_BUILD_NUMBER .
+  - docker tag $DOCKER_USERNAME/krimo-backend:$TRAVIS_BUILD_NUMBER $DOCKER_USERNAME/krimo-backend:latest
+
+deploy:
+  skip_cleanup: true
+  provider: script
+  script: "docker push $DOCKER_USERNAME/krimo-backend"
+  on:
+    push: true
+    branch: master
