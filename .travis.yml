@@ -18,4 +18,4 @@ deploy:
   script: "docker push $DOCKER_USERNAME/krimo-backend"
   on:
     push: true
-    branch: master
+    branch: main
