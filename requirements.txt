@@ -4,3 +4,4 @@ pyopenvidu
 flask-redis
 bleach
 gunicorn
+flask-cors

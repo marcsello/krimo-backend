@@ -7,12 +7,17 @@ from flask_redis import FlaskRedis
 import bleach
 import json
 import time
+from flask_cors import CORS
 
 app = Flask(__name__)
 
 app.config["OPENVIDU_URL"] = os.environ["OPENVIDU_URL"]
 app.config["OPENVIDU_SECRET"] = os.environ["OPENVIDU_SECRET"]
 app.config["REDIS_URL"] = os.environ["REDIS_URL"]
+app.config["CALLBACK_SECRET"] = os.environ["CALLBACK_SECRET"]
+app.config["CORS_ORIGINS"] = ["https://caffe.marcsello.com"]
+
+CORS(app)
 
 ov = OpenVidu(app)
 redis_client = FlaskRedis(app)
@@ -21,7 +26,7 @@ redis_client = FlaskRedis(app)
 @app.route('/api/room/<room>/token', methods=['POST'])
 def tokengenerate(room):
     if not request.json:
-        abort(400)
+        return abort(400)
 
     is_screenshare = False
     try:
@@ -33,10 +38,10 @@ def tokengenerate(room):
     try:
         username = bleach.clean(request.json['username'][:32].replace('%', '').replace('/', ''), tags=[])
     except KeyError:
-        abort(400)
+        return abort(400)
 
     if not username:
-        abort(400)
+        return abort(400)
 
     is_creator = False
     try:
@@ -69,7 +74,7 @@ def connection_id_list(room):
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(404)
+        return abort(404)
 
     conns = []
     for conn in session.connections:
@@ -88,12 +93,12 @@ def connection_id_single(room, _id):
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(404)
+        return abort(404)
 
     try:
         conn = session.get_connection(_id)
     except OpenViduConnectionDoesNotExistsError:
-        abort(404)
+        return abort(404)
 
     connjson = {
         'id': _id,
@@ -108,7 +113,7 @@ def get_motd(room):
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(404)
+        return abort(404)
 
     motd = redis_client.get("motd" + room)
     if motd:
@@ -120,21 +125,21 @@ def get_motd(room):
 @app.route('/api/room/<room>/motd', methods=['POST'])
 def update_motd(room):
     if not request.json:
-        abort(400)
+        return abort(400)
 
     # create session if necessary
     try:
         motd = bleach.clean(request.json['motd'][:256], tags=['b', 'i'])
     except KeyError:
-        abort(400)
+        return abort(400)
 
     if not motd:
-        abort(400)
+        return abort(400)
 
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(404)
+        return abort(404)
 
     redis_client.set("motd" + room, motd.encode('utf-8'), ex=12 * 60 * 60)  # Motd expires after 12 hours
 
@@ -151,15 +156,15 @@ def cmd_updatemotd(room, args):
     try:
         motd = bleach.clean(args[:256], tags=['b', 'i'])
     except KeyError:
-        abort(400)
+        return abort(400)
 
     if not motd:
-        abort(400)
+        return abort(400)
 
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(400)
+        return abort(400)
 
     redis_client.set("motd" + room, motd.encode('utf-8'), ex=12 * 60 * 60)  # Motd expires after 12 hours
 
@@ -172,7 +177,7 @@ def cmd_list(room, args):
     try:
         session = ov.connection.get_session(room)
     except OpenViduSessionDoesNotExistsError:
-        abort(400)
+        return abort(400)
 
     conns = []
     for conn in session.connections:
@@ -185,12 +190,12 @@ def cmd_list(room, args):
 @app.route('/api/room/<room>/cmd/<cmd>', methods=['POST'])
 def execute_command(room, cmd):
     if not request.json:
-        abort(400)
+        return abort(400)
 
     try:
         args = bleach.clean(request.json['args'][:1024], tags=[])
     except KeyError:
-        abort(400)
+        return abort(400)
 
     try:
         function = {
@@ -199,7 +204,7 @@ def execute_command(room, cmd):
             'list': cmd_list
         }[cmd]
     except KeyError:
-        abort(404)
+        return abort(404)
 
     return jsonify({'output': function(room, args)})
 
@@ -207,6 +212,9 @@ def execute_command(room, cmd):
 # this is protected by the reverse proxy lol
 @app.route('/internal/webhook', methods=['POST'])
 def cleanup_after_session():
+    if request.headers.get("Authorization") != app.config["CALLBACK_SECRET"]:
+        return abort(401)
+
     data = request.json
 
     if data and data['event'] == 'sessionDestroyed':
